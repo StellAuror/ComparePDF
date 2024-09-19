@@ -1,5 +1,18 @@
+import fitz  # PyMuPDF
 import cv2
 import numpy as np
+
+def extract_page_as_image(pdf_path, page_num, dpi=300):
+    """
+    Extracts a specific page from a PDF as an image.
+    """
+    doc = fitz.open(pdf_path)
+    page = doc.load_page(page_num)
+    zoom = dpi / 72  # 72 dpi is default resolution for PDFs
+    mat = fitz.Matrix(zoom, zoom)
+    pix = page.get_pixmap(matrix=mat)
+    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+    return img
 
 def find_L_shapes(image):
     """
@@ -46,6 +59,8 @@ def find_L_shapes(image):
 
     return L_shapes
 
+
+
 def compare_pdfs(template_path, artwork_path, output_image_path, dpi=300, transparency=0.5):
     # Extract first page of each PDF as image
     template_img = extract_page_as_image(template_path, 0, dpi)
@@ -70,6 +85,34 @@ def compare_pdfs(template_path, artwork_path, output_image_path, dpi=300, transp
 template_pdf = 'template.pdf'
 artwork_pdf = 'artwork.pdf'
 output_image = 'overlay_result.png'
+
+def align_and_overlay(template_img, artwork_img, L_template, L_artwork, transparency=0.5):
+    """
+    Aligns artwork image based on L-shape positions and overlays it on template image with transparency.
+    """
+    # Compute bounding boxes of L-shapes
+    x_template, y_template, w_template, h_template = cv2.boundingRect(L_template)
+    x_artwork, y_artwork, w_artwork, h_artwork = cv2.boundingRect(L_artwork)
+
+    # Compute scaling factors
+    scale_x = w_template / w_artwork
+    scale_y = h_template / h_artwork
+
+    # Resize artwork image
+    artwork_resized = cv2.resize(artwork_img, None, fx=scale_x, fy=scale_y)
+
+    # Find translation needed to align L-shapes
+    translation_x = x_template - x_artwork * scale_x
+    translation_y = y_template - y_artwork * scale_y
+
+    # Translate artwork
+    translation_matrix = np.float32([[1, 0, translation_x], [0, 1, translation_y]])
+    artwork_translated = cv2.warpAffine(artwork_resized, translation_matrix, (template_img.shape[1], template_img.shape[0]))
+
+    # Overlay images with transparency
+    overlay = cv2.addWeighted(template_img, 1 - transparency, artwork_translated, transparency, 0)
+    
+    return overlay
 
 compare_pdfs(template_pdf, artwork_pdf, output_image, dpi=300, transparency=0.5)
 
